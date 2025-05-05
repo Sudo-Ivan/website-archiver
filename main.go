@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -24,6 +25,9 @@ import (
 	"github.com/Sudo-Ivan/website-archiver/config"
 	"github.com/Sudo-Ivan/website-archiver/pkg"
 )
+
+//go:embed default.png
+var embeddedDefaultPNG []byte
 
 // CDXResponse represents a snapshot from the Wayback Machine's CDX API.
 type CDXResponse struct {
@@ -181,17 +185,26 @@ func findImageInPatterns(domainDir string, patterns []string) (string, error) {
 
 // convertDefaultImage converts the default image to the required format
 func convertDefaultImage(domainDir string) (string, error) {
-	if _, err := os.Stat(pkg.DefaultPNG); err != nil {
-		return pkg.EmptyString, fmt.Errorf("no suitable illustration found and %s is not available: %w", pkg.DefaultPNG, err)
-	}
-
 	defaultDst := filepath.Join(domainDir, pkg.IllustrationPNG)
-	cmd := exec.Command(pkg.ConvertCmd, pkg.DefaultPNG, pkg.ResizeFlag, pkg.ResizeSize, defaultDst) // #nosec G204 - convert args are validated
-	if err := cmd.Run(); err != nil {
-		return pkg.EmptyString, fmt.Errorf("failed to convert %s: %w", pkg.DefaultPNG, err)
+	if _, err := os.Stat(pkg.DefaultPNG); err == nil {
+		cmd := exec.Command(pkg.ConvertCmd, pkg.DefaultPNG, pkg.ResizeFlag, pkg.ResizeSize, defaultDst) // #nosec G204 - convert args are validated
+		if err := cmd.Run(); err != nil {
+			return pkg.EmptyString, fmt.Errorf("failed to convert %s: %w", pkg.DefaultPNG, err)
+		}
+		return filepath.Rel(domainDir, defaultDst)
 	}
-
-	return filepath.Rel(domainDir, defaultDst)
+	// If not found on disk, use embedded
+	if len(embeddedDefaultPNG) > 0 {
+		if err := os.WriteFile(defaultDst, embeddedDefaultPNG, pkg.FilePerms); err != nil {
+			return pkg.EmptyString, fmt.Errorf("failed to write embedded default.png: %w", err)
+		}
+		cmd := exec.Command(pkg.ConvertCmd, defaultDst, pkg.ResizeFlag, pkg.ResizeSize, defaultDst) // #nosec G204 - convert args are validated
+		if err := cmd.Run(); err != nil {
+			return pkg.EmptyString, fmt.Errorf("failed to convert embedded default.png: %w", err)
+		}
+		return filepath.Rel(domainDir, defaultDst)
+	}
+	return pkg.EmptyString, fmt.Errorf("no suitable illustration found and %s is not available", pkg.DefaultPNG)
 }
 
 // findOrCreateIllustration attempts to find an illustration (image) for a given domain,
