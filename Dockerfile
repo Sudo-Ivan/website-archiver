@@ -8,6 +8,7 @@ RUN go mod download
 COPY pkg ./pkg
 COPY config ./config
 COPY main.go ./
+COPY default.png ./
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o website-archiver
 
