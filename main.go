@@ -360,10 +360,9 @@ func createZIMFile(ctx context.Context, outputDir, url string, downloadedSnapsho
 		"--creator", "website-archiver",
 		"--publisher", "website-archiver",
 		"--withoutFTIndex",
-		".",
+		outputDir,
 		zimFile,
 	)
-	cmd.Dir = outputDir // Set the working directory to outputDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -470,8 +469,11 @@ func handlePostDownloadTasks(ctx context.Context, downloadedSnapshots []Snapshot
 		}
 	}
 
-	if err := os.RemoveAll(outputDir); err != nil {
-		slog.Warn("Failed to remove directory", pkg.LogError, err, "dir", outputDir)
+	// Only remove the directory if ZIM creation was successful or not requested
+	if !createZim {
+		if err := os.RemoveAll(outputDir); err != nil {
+			slog.Warn("Failed to remove directory", pkg.LogError, err, "dir", outputDir)
+		}
 	}
 }
 
