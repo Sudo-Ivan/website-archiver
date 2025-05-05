@@ -29,7 +29,7 @@ RUN pacman -Syu --noconfirm && \
 
 COPY --from=builder /app/website-archiver /app/
 
-RUN mkdir -p /app/downloads
+RUN mkdir -p /app/archive
 
 ENTRYPOINT ["/app/website-archiver"]
 

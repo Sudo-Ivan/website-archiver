@@ -12,6 +12,22 @@ A tool for downloading web pages, snapshots from the Wayback Machine and creatin
 - Handles both HTTP and HTTPS URLs
 - Create a ZIM file
 
+## Installation
+
+1. Install with Go:
+
+```bash
+go install github.com/Sudo-Ivan/website-archiver@latest
+```
+
+2. Download binary from [releases](https://github.com/Sudo-Ivan/website-archiver/releases) page.
+
+3. Use with Docker:
+
+```bash
+docker run -it -v ./archive:/app/archive ghcr.io/sudo-ivan/website-archiver:latest [options] <url1> [url2] [url3] ... [depth]
+```
+
 ## Usage
 
 ```bash
