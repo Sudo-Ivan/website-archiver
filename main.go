@@ -329,22 +329,32 @@ func createZIMFile(ctx context.Context, outputDir, url string, downloadedSnapsho
 	zimFile := filepath.Join(filepath.Dir(outputDir), fmt.Sprintf("%s_%s.zim", getDomain(url), currentDate))
 	slog.Info("Creating ZIM file", "file", zimFile)
 
-	illustration, err := findOrCreateIllustration(outputDir, getDomain(url))
+	domain := getDomain(url)
+	illustrationRelPath, err := findOrCreateIllustration(outputDir, domain)
 	if err != nil {
 		return fmt.Errorf("failed to find or create illustration: %w", err)
 	}
 
-	welcomePage := pkg.IndexHTML
+	// Determine the HTML directory and relative paths based on single vs multiple snapshots
+	htmlDir := outputDir
+	welcomePage := pkg.IndexHTML        // Default: index.html relative to outputDir
+	illustration := illustrationRelPath // Default: illustration.png relative to outputDir (assuming findOrCreateIllustration puts it there)
+
 	if len(downloadedSnapshots) == pkg.OneLength {
-		welcomePage = filepath.Join(getDomain(url), pkg.IndexHTML)
+		// Single snapshot: HTML content is inside the domain subdirectory
+		htmlDir = filepath.Join(outputDir, domain)
+		// Welcome page is index.html relative to the domain subdirectory
+		welcomePage = pkg.IndexHTML
+		// Illustration is illustration.png relative to the domain subdirectory
+		illustration = illustrationRelPath // findOrCreateIllustration returns path relative to domain dir
 	}
 
 	cmd := exec.CommandContext(ctx, "zimwriterfs", // #nosec G204 - zimwriterfs args are validated
 		"--welcome", welcomePage,
-		"--illustration", filepath.Join(getDomain(url), illustration),
+		"--illustration", illustration,
 		"--language", "eng",
-		"--title", getDomain(url),
-		"--name", getDomain(url),
+		"--title", domain,
+		"--name", domain,
 		"--description", fmt.Sprintf("Archive of %s%s", url, func() string {
 			if len(downloadedSnapshots) > pkg.OneLength {
 				return fmt.Sprintf(" with %d snapshots", len(downloadedSnapshots))
@@ -360,7 +370,7 @@ func createZIMFile(ctx context.Context, outputDir, url string, downloadedSnapsho
 		"--creator", "website-archiver",
 		"--publisher", "website-archiver",
 		"--withoutFTIndex",
-		outputDir,
+		htmlDir, // The directory relative to which welcome/illustration paths are resolved
 		zimFile,
 	)
 	cmd.Stdout = os.Stdout
