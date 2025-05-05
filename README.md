@@ -1,16 +1,16 @@
-# Page Downloader
+# Website Archiver
 
-A tool for downloading web pages and their snapshots from the Wayback Machine.
+A tool for downloading web pages, snapshots from the Wayback Machine and creating into a ZIM file.
 
 ## Features
 
-- Downloads web pages and their resources
+- Download web pages and their resources
 - Integrates with Internet Archive's Wayback Machine
 - Supports recursive downloading with configurable depth
 - Preserves page structure and converts links
 - Creates timestamped output directories
 - Handles both HTTP and HTTPS URLs
-- Creates a ZIM file
+- Create a ZIM file
 
 ## Usage
 
