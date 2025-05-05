@@ -29,8 +29,7 @@ RUN pacman -Syu --noconfirm && \
 
 COPY --from=builder /app/website-archiver /app/
 
-RUN mkdir -p /app/downloads && \
-    chmod 777 /app/downloads
+RUN mkdir -p /app/downloads
 
 ENTRYPOINT ["/app/website-archiver"]
 
