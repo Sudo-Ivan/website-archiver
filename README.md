@@ -2,6 +2,9 @@
 
 A tool for downloading web pages, snapshots from the Wayback Machine and creating into a ZIM file.
 
+> [!WARNING]  
+> Still in heavy development, use at your own risk.
+
 ## Features
 
 - Download web pages and their resources
