@@ -360,9 +360,10 @@ func createZIMFile(ctx context.Context, outputDir, url string, downloadedSnapsho
 		"--creator", "website-archiver",
 		"--publisher", "website-archiver",
 		"--withoutFTIndex",
-		outputDir,
+		".",
 		zimFile,
 	)
+	cmd.Dir = outputDir // Set the working directory to outputDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
