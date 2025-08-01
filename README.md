@@ -2,15 +2,11 @@
 
 A tool for downloading web pages, snapshots from the Wayback Machine and creating into a ZIM file.
 
-> [!WARNING]  
-> Still in heavy development, use at your own risk.
-
 ## Features
 
 - Download web pages and their resources
-- Integrates with Internet Archive's Wayback Machine
+- Integrates with Internet Archive's Wayback Machine to download snapshots
 - Supports recursive downloading with configurable depth
-- Preserves page structure and converts links
 - Creates timestamped output directories
 - Handles both HTTP and HTTPS URLs
 - Create a ZIM file
