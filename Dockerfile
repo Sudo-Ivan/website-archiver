@@ -7,6 +7,7 @@ RUN go mod download
 
 COPY pkg ./pkg
 COPY config ./config
+COPY internal ./internal
 COPY main.go ./
 COPY default.png ./
 
