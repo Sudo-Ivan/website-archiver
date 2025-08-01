@@ -15,7 +15,7 @@ import (
 )
 
 // Download fetches a URL and its dependencies, saving them to the specified output directory.
-func Download(ctx context.Context, rawURL string, depth int, outputDir string, cfg *config.Config) error {
+func Download(ctx context.Context, rawURL string, depth int, outputDir string, noJs bool, noCss bool, cfg *config.Config) error {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
@@ -30,10 +30,10 @@ func Download(ctx context.Context, rawURL string, depth int, outputDir string, c
 		return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 
-	return downloadRecursive(ctx, parsedURL, parsedURL.Hostname(), depth, outputDir, cfg)
+	return downloadRecursive(ctx, parsedURL, parsedURL.Hostname(), depth, outputDir, noJs, noCss, cfg)
 }
 
-func downloadRecursive(ctx context.Context, currentURL *url.URL, baseDomain string, depth int, outputDir string, cfg *config.Config) error {
+func downloadRecursive(ctx context.Context, currentURL *url.URL, baseDomain string, depth int, outputDir string, noJs bool, noCss bool, cfg *config.Config) error {
 	if depth < 0 {
 		return nil
 	}
@@ -97,7 +97,36 @@ func downloadRecursive(ctx context.Context, currentURL *url.URL, baseDomain stri
 				for i, a := range n.Attr {
 					var link string
 					switch a.Key {
-					case "href", "src":
+					case "href":
+						if n.Data == "link" && getAttr(n, "rel") == "stylesheet" && !noCss {
+							// Handle CSS links: download and embed
+							cssURL := resolveURL(currentURL, a.Val)
+							if cssURL != nil && cssURL.Hostname() == baseDomain {
+								cssContent, err := downloadContent(ctx, cssURL, cfg)
+								if err == nil {
+									n.Attr[i].Key = ""
+									n.Attr[i].Val = ""
+									n.Data = "style"
+									n.FirstChild = &html.Node{Type: html.TextNode, Data: cssContent}
+									continue
+								}
+							}
+						}
+						link = a.Val
+					case "src":
+						if n.Data == "script" && !noJs {
+							// Handle JavaScript links: download and embed
+							jsURL := resolveURL(currentURL, a.Val)
+							if jsURL != nil && jsURL.Hostname() == baseDomain {
+								jsContent, err := downloadContent(ctx, jsURL, cfg)
+								if err == nil {
+									n.Attr[i].Key = ""
+									n.Attr[i].Val = ""
+									n.FirstChild = &html.Node{Type: html.TextNode, Data: jsContent}
+									continue
+								}
+							}
+						}
 						link = a.Val
 					case "poster": // For video poster images
 						link = a.Val
@@ -112,7 +141,7 @@ func downloadRecursive(ctx context.Context, currentURL *url.URL, baseDomain stri
 					resolvedURL := resolveURL(currentURL, link)
 					if resolvedURL != nil && resolvedURL.String() != currentURL.String() {
 						go func(u *url.URL) {
-							if err := downloadRecursive(ctx, u, baseDomain, depth-1, outputDir, cfg); err != nil {
+							if err := downloadRecursive(ctx, u, baseDomain, depth-1, outputDir, noJs, noCss, cfg); err != nil {
 								// Log error, but don't stop the main download
 							}
 						}(resolvedURL)
@@ -170,4 +199,39 @@ func resolveURL(baseURL *url.URL, ref string) *url.URL {
 		return nil
 	}
 	return baseURL.ResolveReference(refURL)
+}
+
+// getAttr is a helper function to get the value of a specified attribute from an HTML node.
+func getAttr(n *html.Node, key string) string {
+	for _, attr := range n.Attr {
+		if attr.Key == key {
+			return attr.Val
+		}
+	}
+	return ""
+}
+
+// downloadContent is a helper function to download content from a URL
+func downloadContent(ctx context.Context, u *url.URL, cfg *config.Config) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request for %s: %w", u.String(), err)
+	}
+
+	client := &http.Client{Timeout: cfg.HTTPTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch %s: %w", u.String(), err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to fetch %s: status code %d", u.String(), resp.StatusCode)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body for %s: %w", u.String(), err)
+	}
+	return string(bodyBytes), nil
 }

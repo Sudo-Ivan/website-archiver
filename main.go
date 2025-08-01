@@ -281,14 +281,14 @@ func createSnapshotSelectionPage(snapshots []Snapshot, outputDir string) error {
 }
 
 // downloadSnapshot downloads a specific snapshot from the Wayback Machine
-func downloadSnapshot(ctx context.Context, snapshot string, url string, depth int, outputDir string, cfg *config.Config) error {
+func downloadSnapshot(ctx context.Context, snapshot string, url string, depth int, outputDir string, noJs bool, noCss bool, cfg *config.Config) error {
 	waybackURL := fmt.Sprintf(pkg.WaybackURLFormat, snapshot, url)
 	slog.Info("Downloading specific snapshot", pkg.LogTimestamp, snapshot, pkg.LogURL, url)
-	return downloader.Download(ctx, waybackURL, depth, outputDir, cfg)
+	return downloader.Download(ctx, waybackURL, depth, outputDir, noJs, noCss, cfg)
 }
 
 // downloadAllSnapshots downloads all available snapshots for a URL
-func downloadAllSnapshots(ctx context.Context, snapshots []CDXResponse, url string, depth int, outputDir string, cfg *config.Config) []Snapshot {
+func downloadAllSnapshots(ctx context.Context, snapshots []CDXResponse, url string, depth int, outputDir string, noJs bool, noCss bool, cfg *config.Config) []Snapshot {
 	var downloadedSnapshots []Snapshot
 	for _, snapshot := range snapshots {
 		snapshotDir := filepath.Join(outputDir, snapshot.Timestamp)
@@ -298,7 +298,7 @@ func downloadAllSnapshots(ctx context.Context, snapshots []CDXResponse, url stri
 		}
 
 		waybackURL := fmt.Sprintf(pkg.WaybackURLFormat, snapshot.Timestamp, url)
-		if err := downloader.Download(ctx, waybackURL, depth, snapshotDir, cfg); err != nil {
+		if err := downloader.Download(ctx, waybackURL, depth, snapshotDir, noJs, noCss, cfg); err != nil {
 			slog.Warn("Failed to download snapshot", pkg.LogError, err, pkg.LogTimestamp, snapshot.Timestamp)
 			continue
 		}
@@ -363,8 +363,8 @@ func createZIMFile(ctx context.Context, outputDir, url string, downloadedSnapsho
 }
 
 // downloadCurrentVersion attempts to download the current version of a URL
-func downloadCurrentVersion(ctx context.Context, url string, depth int, outputDir string, cfg *config.Config) ([]Snapshot, error) {
-	if err := downloader.Download(ctx, url, depth, outputDir, cfg); err != nil {
+func downloadCurrentVersion(ctx context.Context, url string, depth int, outputDir string, noJs bool, noCss bool, cfg *config.Config) ([]Snapshot, error) {
+	if err := downloader.Download(ctx, url, depth, outputDir, noJs, noCss, cfg); err != nil {
 		return nil, err
 	}
 	return []Snapshot{{
@@ -375,7 +375,7 @@ func downloadCurrentVersion(ctx context.Context, url string, depth int, outputDi
 }
 
 // downloadArchivedVersion downloads an archived version of a URL
-func downloadArchivedVersion(ctx context.Context, url string, depth int, allSnapshots bool, cfg *config.Config) ([]Snapshot, error) {
+func downloadArchivedVersion(ctx context.Context, url string, depth int, allSnapshots bool, noJs bool, noCss bool, cfg *config.Config) ([]Snapshot, error) {
 	snapshots, err := getCDXSnapshots(ctx, url, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get snapshots: %w", err)
@@ -387,13 +387,13 @@ func downloadArchivedVersion(ctx context.Context, url string, depth int, allSnap
 
 	if allSnapshots {
 		slog.Info("Found archived versions", "count", len(snapshots), pkg.LogURL, url)
-		return downloadAllSnapshots(ctx, snapshots, url, depth, cfg.OutputDir, cfg), nil
+		return downloadAllSnapshots(ctx, snapshots, url, depth, cfg.OutputDir, noJs, noCss, cfg), nil
 	}
 
 	waybackURL := fmt.Sprintf(pkg.WaybackURLFormat, snapshots[pkg.FirstIndex].Timestamp, url)
 	slog.Info("Downloading most recent archived version", pkg.LogTimestamp, snapshots[pkg.FirstIndex].Timestamp, pkg.LogURL, url)
 
-	if err := downloader.Download(ctx, waybackURL, depth, cfg.OutputDir, cfg); err != nil {
+	if err := downloader.Download(ctx, waybackURL, depth, cfg.OutputDir, noJs, noCss, cfg); err != nil {
 		return nil, fmt.Errorf("failed to download archived version: %w", err)
 	}
 
@@ -405,8 +405,8 @@ func downloadArchivedVersion(ctx context.Context, url string, depth int, allSnap
 }
 
 // handleSpecificSnapshot handles downloading a specific snapshot
-func handleSpecificSnapshot(ctx context.Context, specificSnapshot, url string, depth int, outputDir string, cfg *config.Config) ([]Snapshot, error) {
-	if err := downloadSnapshot(ctx, specificSnapshot, url, depth, outputDir, cfg); err != nil {
+func handleSpecificSnapshot(ctx context.Context, specificSnapshot, url string, depth int, outputDir string, noJs, noCss bool, cfg *config.Config) ([]Snapshot, error) {
+	if err := downloadSnapshot(ctx, specificSnapshot, url, depth, outputDir, noJs, noCss, cfg); err != nil {
 		slog.Error("Failed to download snapshot", pkg.LogError, err, pkg.LogURL, url)
 		return nil, fmt.Errorf("failed to download snapshot: %w", err)
 	}
@@ -419,12 +419,12 @@ func handleSpecificSnapshot(ctx context.Context, specificSnapshot, url string, d
 }
 
 // handleCurrentOrArchivedVersion attempts to download current version first, then falls back to archived version
-func handleCurrentOrArchivedVersion(ctx context.Context, url string, depth int, outputDir string, allSnapshots bool, cfg *config.Config) ([]Snapshot, error) {
+func handleCurrentOrArchivedVersion(ctx context.Context, url string, depth int, outputDir string, allSnapshots bool, noJs, noCss bool, cfg *config.Config) ([]Snapshot, error) {
 	slog.Info("Attempting direct download", pkg.LogURL, url)
-	downloadedSnapshots, err := downloadCurrentVersion(ctx, url, depth, outputDir, cfg)
+	downloadedSnapshots, err := downloadCurrentVersion(ctx, url, depth, outputDir, noJs, noCss, cfg)
 	if err != nil {
 		slog.Warn("Direct download failed, attempting archived versions", pkg.LogError, err, pkg.LogURL, url)
-		downloadedSnapshots, err = downloadArchivedVersion(ctx, url, depth, allSnapshots, cfg)
+		downloadedSnapshots, err = downloadArchivedVersion(ctx, url, depth, allSnapshots, noJs, noCss, cfg)
 		if err != nil {
 			slog.Error("Failed to download archived version", pkg.LogError, err, pkg.LogURL, url)
 			return nil, err
@@ -466,7 +466,7 @@ func handlePostDownloadTasks(ctx context.Context, downloadedSnapshots []Snapshot
 }
 
 // processURL downloads a URL, either directly or from the Wayback Machine, and optionally creates a ZIM file.
-func processURL(ctx context.Context, url string, depth int, createZim bool, allSnapshots bool, specificSnapshot string, results chan<- DownloadResult, cfg *config.Config) {
+func processURL(ctx context.Context, url string, depth int, createZim bool, allSnapshots bool, specificSnapshot string, noJs bool, noCss bool, results chan<- DownloadResult, cfg *config.Config) {
 	timestampStr := time.Now().Format("20060102_150405")
 	outputDir := filepath.Join(cfg.OutputDir, getDomain(url)+"_"+timestampStr)
 
@@ -480,9 +480,9 @@ func processURL(ctx context.Context, url string, depth int, createZim bool, allS
 	var err error
 
 	if specificSnapshot != pkg.EmptyString {
-		downloadedSnapshots, err = handleSpecificSnapshot(ctx, specificSnapshot, url, depth, outputDir, cfg)
+		downloadedSnapshots, err = handleSpecificSnapshot(ctx, specificSnapshot, url, depth, outputDir, noJs, noCss, cfg)
 	} else {
-		downloadedSnapshots, err = handleCurrentOrArchivedVersion(ctx, url, depth, outputDir, allSnapshots, cfg)
+		downloadedSnapshots, err = handleCurrentOrArchivedVersion(ctx, url, depth, outputDir, allSnapshots, noJs, noCss, cfg)
 	}
 
 	if err != nil {
@@ -495,18 +495,22 @@ func processURL(ctx context.Context, url string, depth int, createZim bool, allS
 }
 
 // validateAndParseArgs validates URLs and parses command line arguments
-func validateAndParseArgs() (urls []string, depth int, createZim bool, allSnapshots bool, specificSnapshot string, err error) {
+func validateAndParseArgs() (urls []string, depth int, createZim bool, allSnapshots bool, specificSnapshot string, noJs bool, noCss bool, err error) {
 	flag.BoolVar(&createZim, "zim", false, "Create ZIM file from downloaded content")
 	flag.BoolVar(&createZim, "z", false, "Create ZIM file from downloaded content (shorthand)")
 	flag.BoolVar(&allSnapshots, "all-snapshots", false, "Download all available snapshots")
 	flag.BoolVar(&allSnapshots, "as", false, "Download all available snapshots (shorthand)")
 	flag.StringVar(&specificSnapshot, "snapshot", pkg.EmptyString, "Download a specific snapshot (format: YYYYMMDDHHMMSS)")
 	flag.StringVar(&specificSnapshot, "s", pkg.EmptyString, "Download a specific snapshot (format: YYYYMMDDHHMMSS) (shorthand)")
+
+	flag.BoolVar(&noJs, "no-js", false, "Do not embed JavaScript in HTML")
+	flag.BoolVar(&noCss, "no-css", false, "Do not embed CSS in HTML")
+
 	flag.Parse()
 
 	args := flag.Args()
 	if len(args) < pkg.OneLength {
-		return nil, pkg.ZeroDepth, false, false, pkg.EmptyString, fmt.Errorf("no URLs provided")
+		return nil, pkg.ZeroDepth, false, false, pkg.EmptyString, false, false, fmt.Errorf("no URLs provided")
 	}
 
 	depth = pkg.ZeroDepth
@@ -520,11 +524,11 @@ func validateAndParseArgs() (urls []string, depth int, createZim bool, allSnapsh
 
 	for _, url := range urls {
 		if err := validateURL(url); err != nil {
-			return nil, pkg.ZeroDepth, false, false, pkg.EmptyString, fmt.Errorf("invalid URL %s: %w", url, err)
+			return nil, pkg.ZeroDepth, false, false, pkg.EmptyString, false, false, fmt.Errorf("invalid URL %s: %w", url, err)
 		}
 	}
 
-	return urls, depth, createZim, allSnapshots, specificSnapshot, nil
+	return urls, depth, createZim, allSnapshots, specificSnapshot, noJs, noCss, nil
 }
 
 // processResults processes download results and prints a summary
@@ -552,7 +556,7 @@ func main() {
 	// Initialize configuration
 	cfg := config.New()
 
-	urls, depth, createZim, allSnapshots, specificSnapshot, err := validateAndParseArgs()
+	urls, depth, createZim, allSnapshots, specificSnapshot, noJs, noCss, err := validateAndParseArgs()
 	if err != nil {
 		slog.Error("Failed to parse arguments", pkg.LogError, err)
 		fmt.Println("Usage: website-archiver [--zim|-z] [--all-snapshots|-as] [--snapshot|-s YYYYMMDDHHMMSS] <url1> [url2] [url3] ... [depth]")
@@ -578,7 +582,7 @@ func main() {
 		wg.Add(1)
 		go func(url string) {
 			defer wg.Done()
-			processURL(ctx, url, depth, createZim, allSnapshots, specificSnapshot, results, cfg)
+			processURL(ctx, url, depth, createZim, allSnapshots, specificSnapshot, noJs, noCss, results, cfg)
 		}(url)
 	}
 
