@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/Sudo-Ivan/website-archiver/config"
+	"github.com/Sudo-Ivan/website-archiver/internal/downloader"
 	"github.com/Sudo-Ivan/website-archiver/pkg"
 )
 
@@ -64,38 +65,6 @@ func validateURL(rawURL string) error {
 		return fmt.Errorf("URL must use http or https scheme")
 	}
 	return nil
-}
-
-// downloadWithWget downloads a URL using wget with specified depth and output directory.
-func downloadWithWget(ctx context.Context, url string, depth int, outputDir string, cfg *config.Config) error {
-	if depth < pkg.ZeroDepth || depth > cfg.MaxDepth {
-		return fmt.Errorf("depth must be between %d and %d", pkg.ZeroDepth, cfg.MaxDepth)
-	}
-
-	args := []string{
-		"--no-clobber",
-		"--html-extension",
-		"--convert-links",
-		"--restrict-file-names=windows",
-		"--domains", getDomain(url),
-		"--no-parent",
-		"--directory-prefix=" + outputDir,
-	}
-
-	if depth == pkg.ZeroDepth {
-		args = append(args, "--page-requisites")
-	} else {
-		args = append(args, "--recursive")
-		args = append(args, "--level="+fmt.Sprintf("%d", depth))
-	}
-
-	args = append(args, url)
-
-	cmd := exec.CommandContext(ctx, "wget", args...) // #nosec G204 - wget args are validated
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	return cmd.Run()
 }
 
 // getDomain extracts the domain name from a URL.
@@ -185,32 +154,52 @@ func findImageInPatterns(domainDir string, patterns []string) (string, error) {
 
 // convertDefaultImage converts the default image to the required format
 func convertDefaultImage(domainDir string) (string, error) {
+	defaultSrc := pkg.DefaultPNG
 	defaultDst := filepath.Join(domainDir, pkg.IllustrationPNG)
+
+	// If default.png exists on disk, copy it to the domainDir
 	if _, err := os.Stat(pkg.DefaultPNG); err == nil {
-		cmd := exec.Command(pkg.ConvertCmd, pkg.DefaultPNG, pkg.ResizeFlag, pkg.ResizeSize, defaultDst) // #nosec G204 - convert args are validated
-		if err := cmd.Run(); err != nil {
-			return pkg.EmptyString, fmt.Errorf("failed to convert %s: %w", pkg.DefaultPNG, err)
+		srcFile, err := os.Open(defaultSrc) // #nosec G304 - defaultSrc is a constant
+		if err != nil {
+			return pkg.EmptyString, fmt.Errorf("failed to open source default.png: %w", err)
 		}
-		return filepath.Rel(domainDir, defaultDst)
+		defer srcFile.Close()
+
+		dstFile, err := os.Create(filepath.Join(domainDir, pkg.DefaultPNG)) // #nosec G304 - domainDir is controlled, pkg.DefaultPNG is a constant
+		if err != nil {
+			return pkg.EmptyString, fmt.Errorf("failed to create destination default.png: %w", err)
+		}
+		defer dstFile.Close()
+
+		if _, err := io.Copy(dstFile, srcFile); err != nil {
+			return pkg.EmptyString, fmt.Errorf("failed to copy default.png to domain directory: %w", err)
+		}
+	} else if len(embeddedDefaultPNG) > 0 {
+		// If not found on disk, use embedded default.png
+		if err := os.WriteFile(filepath.Join(domainDir, pkg.DefaultPNG), embeddedDefaultPNG, pkg.FilePerms); err != nil {
+			return pkg.EmptyString, fmt.Errorf("failed to write embedded default.png to domain directory: %w", err)
+		}
+	} else {
+		return pkg.EmptyString, fmt.Errorf("no suitable illustration found and %s is not available", pkg.DefaultPNG)
 	}
-	// If not found on disk, use embedded
-	if len(embeddedDefaultPNG) > 0 {
-		if err := os.WriteFile(defaultDst, embeddedDefaultPNG, pkg.FilePerms); err != nil {
-			return pkg.EmptyString, fmt.Errorf("failed to write embedded default.png: %w", err)
-		}
-		cmd := exec.Command(pkg.ConvertCmd, defaultDst, pkg.ResizeFlag, pkg.ResizeSize, defaultDst) // #nosec G204 - convert args are validated
-		if err := cmd.Run(); err != nil {
-			return pkg.EmptyString, fmt.Errorf("failed to convert embedded default.png: %w", err)
-		}
-		return filepath.Rel(domainDir, defaultDst)
+
+	// Now run convert on the copied/written default.png within the domainDir
+	cmd := exec.Command(pkg.ConvertCmd, filepath.Join(domainDir, pkg.DefaultPNG), pkg.ResizeFlag, pkg.ResizeSize, defaultDst) // #nosec G204 - cmd args are from validated/constant sources
+	slog.Info("Attempting to convert default.png (copied)", "command", cmd.String())
+	if err := cmd.Run(); err != nil {
+		return pkg.EmptyString, fmt.Errorf("failed to convert %s: %w", pkg.DefaultPNG, err)
 	}
-	return pkg.EmptyString, fmt.Errorf("no suitable illustration found and %s is not available", pkg.DefaultPNG)
+	return filepath.Rel(domainDir, defaultDst)
 }
 
 // findOrCreateIllustration attempts to find an illustration (image) for a given domain,
 // or creates one from a default image if none is found.
 func findOrCreateIllustration(outputDir, domain string) (string, error) {
 	domainDir := filepath.Join(outputDir, domain)
+
+	if err := os.MkdirAll(domainDir, pkg.DirPerms); err != nil {
+		return pkg.EmptyString, fmt.Errorf("failed to create domain directory for illustration: %w", err)
+	}
 
 	imagePatterns := []string{
 		"*.png", "*.jpg", "*.jpeg", "*.ico", "*.gif",
@@ -295,7 +284,7 @@ func createSnapshotSelectionPage(snapshots []Snapshot, outputDir string) error {
 func downloadSnapshot(ctx context.Context, snapshot string, url string, depth int, outputDir string, cfg *config.Config) error {
 	waybackURL := fmt.Sprintf(pkg.WaybackURLFormat, snapshot, url)
 	slog.Info("Downloading specific snapshot", pkg.LogTimestamp, snapshot, pkg.LogURL, url)
-	return downloadWithWget(ctx, waybackURL, depth, outputDir, cfg)
+	return downloader.Download(ctx, waybackURL, depth, outputDir, cfg)
 }
 
 // downloadAllSnapshots downloads all available snapshots for a URL
@@ -309,7 +298,7 @@ func downloadAllSnapshots(ctx context.Context, snapshots []CDXResponse, url stri
 		}
 
 		waybackURL := fmt.Sprintf(pkg.WaybackURLFormat, snapshot.Timestamp, url)
-		if err := downloadWithWget(ctx, waybackURL, depth, snapshotDir, cfg); err != nil {
+		if err := downloader.Download(ctx, waybackURL, depth, snapshotDir, cfg); err != nil {
 			slog.Warn("Failed to download snapshot", pkg.LogError, err, pkg.LogTimestamp, snapshot.Timestamp)
 			continue
 		}
@@ -335,19 +324,10 @@ func createZIMFile(ctx context.Context, outputDir, url string, downloadedSnapsho
 		return fmt.Errorf("failed to find or create illustration: %w", err)
 	}
 
-	// Determine the HTML directory and relative paths based on single vs multiple snapshots
+	// Determine the HTML directory and relative paths for zimwriterfs
 	htmlDir := outputDir
-	welcomePage := pkg.IndexHTML        // Default: index.html relative to outputDir
-	illustration := illustrationRelPath // Default: illustration.png relative to outputDir (assuming findOrCreateIllustration puts it there)
-
-	if len(downloadedSnapshots) == pkg.OneLength {
-		// Single snapshot: HTML content is inside the domain subdirectory
-		htmlDir = filepath.Join(outputDir, domain)
-		// Welcome page is index.html relative to the domain subdirectory
-		welcomePage = pkg.IndexHTML
-		// Illustration is illustration.png relative to the domain subdirectory
-		illustration = illustrationRelPath // findOrCreateIllustration returns path relative to domain dir
-	}
+	welcomePage := pkg.IndexHTML
+	illustration := filepath.Join(domain, illustrationRelPath) // This needs to be relative to htmlDir (outputDir)
 
 	cmd := exec.CommandContext(ctx, "zimwriterfs", // #nosec G204 - zimwriterfs args are validated
 		"--welcome", welcomePage,
@@ -384,7 +364,7 @@ func createZIMFile(ctx context.Context, outputDir, url string, downloadedSnapsho
 
 // downloadCurrentVersion attempts to download the current version of a URL
 func downloadCurrentVersion(ctx context.Context, url string, depth int, outputDir string, cfg *config.Config) ([]Snapshot, error) {
-	if err := downloadWithWget(ctx, url, depth, outputDir, cfg); err != nil {
+	if err := downloader.Download(ctx, url, depth, outputDir, cfg); err != nil {
 		return nil, err
 	}
 	return []Snapshot{{
@@ -395,7 +375,7 @@ func downloadCurrentVersion(ctx context.Context, url string, depth int, outputDi
 }
 
 // downloadArchivedVersion downloads an archived version of a URL
-func downloadArchivedVersion(ctx context.Context, url string, depth int, outputDir string, allSnapshots bool, cfg *config.Config) ([]Snapshot, error) {
+func downloadArchivedVersion(ctx context.Context, url string, depth int, allSnapshots bool, cfg *config.Config) ([]Snapshot, error) {
 	snapshots, err := getCDXSnapshots(ctx, url, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get snapshots: %w", err)
@@ -407,13 +387,13 @@ func downloadArchivedVersion(ctx context.Context, url string, depth int, outputD
 
 	if allSnapshots {
 		slog.Info("Found archived versions", "count", len(snapshots), pkg.LogURL, url)
-		return downloadAllSnapshots(ctx, snapshots, url, depth, outputDir, cfg), nil
+		return downloadAllSnapshots(ctx, snapshots, url, depth, cfg.OutputDir, cfg), nil
 	}
 
 	waybackURL := fmt.Sprintf(pkg.WaybackURLFormat, snapshots[pkg.FirstIndex].Timestamp, url)
 	slog.Info("Downloading most recent archived version", pkg.LogTimestamp, snapshots[pkg.FirstIndex].Timestamp, pkg.LogURL, url)
 
-	if err := downloadWithWget(ctx, waybackURL, depth, outputDir, cfg); err != nil {
+	if err := downloader.Download(ctx, waybackURL, depth, cfg.OutputDir, cfg); err != nil {
 		return nil, fmt.Errorf("failed to download archived version: %w", err)
 	}
 
@@ -444,7 +424,7 @@ func handleCurrentOrArchivedVersion(ctx context.Context, url string, depth int, 
 	downloadedSnapshots, err := downloadCurrentVersion(ctx, url, depth, outputDir, cfg)
 	if err != nil {
 		slog.Warn("Direct download failed, attempting archived versions", pkg.LogError, err, pkg.LogURL, url)
-		downloadedSnapshots, err = downloadArchivedVersion(ctx, url, depth, outputDir, allSnapshots, cfg)
+		downloadedSnapshots, err = downloadArchivedVersion(ctx, url, depth, allSnapshots, cfg)
 		if err != nil {
 			slog.Error("Failed to download archived version", pkg.LogError, err, pkg.LogURL, url)
 			return nil, err
@@ -476,13 +456,11 @@ func handlePostDownloadTasks(ctx context.Context, downloadedSnapshots []Snapshot
 	if createZim {
 		if err := createZIMFile(ctx, outputDir, url, downloadedSnapshots); err != nil {
 			slog.Warn("Failed to create ZIM file", pkg.LogError, err)
-		}
-	}
-
-	// Only remove the directory if ZIM creation was successful or not requested
-	if !createZim {
-		if err := os.RemoveAll(outputDir); err != nil {
-			slog.Warn("Failed to remove directory", pkg.LogError, err, "dir", outputDir)
+		} else {
+			// If ZIM creation succeeds, remove the downloaded directory
+			if err := os.RemoveAll(outputDir); err != nil {
+				slog.Warn("Failed to remove directory after ZIM creation", pkg.LogError, err, "dir", outputDir)
+			}
 		}
 	}
 }

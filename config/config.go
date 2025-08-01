@@ -23,6 +23,8 @@ const (
 	DefaultWaybackAPIURL = "https://web.archive.org/cdx/search/cdx"
 	// DefaultOutputDir is the default directory for downloaded files
 	DefaultOutputDir = "downloads"
+	// DefaultFilePerms is the default file permissions in octal
+	DefaultFilePerms = 0600
 	// EmptyString represents an empty string constant
 	EmptyString = ""
 )
@@ -33,6 +35,9 @@ type Config struct {
 	HTTPTimeout time.Duration
 	MaxDepth    int
 	DirPerms    os.FileMode
+
+	// File permissions
+	FilePerms os.FileMode
 
 	// Wayback Machine settings
 	WaybackAPIURL string
@@ -50,6 +55,7 @@ func New() *Config {
 		HTTPTimeout:   getEnvDuration("HTTP_TIMEOUT", DefaultHTTPTimeout),
 		MaxDepth:      getEnvInt("MAX_DEPTH", DefaultMaxDepth),
 		DirPerms:      getEnvFileMode("DIR_PERMS", DefaultDirPerms),
+		FilePerms:     getEnvFileMode("FILE_PERMS", DefaultFilePerms),
 		WaybackAPIURL: getEnvString("WAYBACK_API_URL", DefaultWaybackAPIURL),
 		OutputDir:     getEnvString("OUTPUT_DIR", DefaultOutputDir),
 		LogLevel:      getEnvLogLevel("LOG_LEVEL", slog.LevelInfo),

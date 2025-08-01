@@ -16,6 +16,9 @@ const (
 	// DirPerms is the default directory permissions in octal
 	DirPerms = 0750
 
+	// FilePerms is the default file permissions in octal
+	FilePerms = 0640
+
 	// File and path constants
 	// IllustrationPNG is the name of the illustration file in PNG format
 	IllustrationPNG = "illustration.png"
@@ -53,10 +56,6 @@ const (
 	FifthIndex = 4
 	// SixthIndex represents the sixth index in an array (5)
 	SixthIndex = 5
-
-	// File permissions
-	// FilePerms is the default file permissions in octal
-	FilePerms = 0600
 
 	// Wayback Machine URL format
 	// WaybackURLFormat is the format string for Wayback Machine URLs
