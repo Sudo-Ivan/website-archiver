@@ -25,7 +25,6 @@ WORKDIR /app
 
 RUN pacman -Syu --noconfirm && \
     pacman -S --noconfirm \
-    wget \
     imagemagick \
     zim-tools
 
