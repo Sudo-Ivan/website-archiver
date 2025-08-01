@@ -61,15 +61,8 @@ website-archiver --snapshot 20230101000000 https://example.com
 
 ## Dependencies
 
-- wget
 - ImageMagick (for ZIM file creation)
 - zim-tools (for ZIM file creation)
-
-## Prerequisites
-
-- Go 1.24 or higher
-- `wget` command-line tool
-- `zimwriterfs` command-line tool (zim-tools)
 
 ## Output
 
